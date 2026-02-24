@@ -1,0 +1,42 @@
+name: Build NekoWallpaper
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4  # v4 not v3
+    
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4  # v4 not v3
+      with:
+        dotnet-version: '8.0.x'  # Changed to 8.0
+    
+    - name: Restore dependencies
+      run: dotnet restore
+    
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+    
+    - name: Publish single file
+      run: |
+        dotnet publish \
+          --configuration Release \
+          --runtime win-x64 \
+          --self-contained true \
+          -p:PublishSingleFile=true \
+          -p:IncludeNativeLibrariesForSelfExtract=true \
+          --output ./publish
+    
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4  # v4 not v3
+      with:
+        name: NekoWallpaper
+        path: ./publish/NekoWallpaper.exe
