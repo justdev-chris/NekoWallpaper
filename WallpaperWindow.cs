@@ -40,11 +40,16 @@ namespace NekoWallpaper
         public void PlayVideo(string path)
         {
             _currentFile = path;
-            using (var media = new Media(_libVLC, path))
+            var media = new Media(_libVLC, path);
+            
+            // Loop when video ends
+            _mediaPlayer.EndReached += (s, e) => 
             {
+                _mediaPlayer.Stop();
                 _mediaPlayer.Play(media);
-                _mediaPlayer.SetLoop(true);
-            }
+            };
+            
+            _mediaPlayer.Play(media);
         }
 
         public void Stop()
