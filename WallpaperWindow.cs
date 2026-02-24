@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using LibVLCSharp.Shared;
@@ -30,8 +31,13 @@ namespace NekoWallpaper
             IntPtr progman = FindWindow("Progman", null);
             SetParent(this.Handle, progman);
             
-            // Setup VLC
-            Core.Initialize();
+            // Tell VLC where to find its native libraries
+            string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
+            string libvlcPath = Path.Combine(baseDirectory, "libvlc", "win-x64");
+            
+            // Initialize VLC with the correct path
+            Core.Initialize(libvlcPath);
+            
             _libVLC = new LibVLC();
             _mediaPlayer = new MediaPlayer(_libVLC);
             _mediaPlayer.Hwnd = this.Handle;
