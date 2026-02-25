@@ -12,23 +12,28 @@ namespace NekoWallpaper
         [DllImport("user32.dll")]
         static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
         
-        [DllImport("user32.dll")]
-        static extern IntPtr FindWindow(string className, string windowName);
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern IntPtr FindWindow(string lpClassName, string lpWindowName);
+        
+        [DllImport("user32.dll", SetLastError = true)]
+        static extern IntPtr FindWindowEx(IntPtr hwndParent, IntPtr hwndChildAfter, string lpszClass, string lpszWindow);
         
         [DllImport("user32.dll")]
-        static extern IntPtr GetDesktopWindow();
+        static extern int ShowWindow(IntPtr hWnd, int nCmdShow);
         
         [DllImport("user32.dll")]
-        static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+        static extern bool EnumWindows(EnumWindowsProc enumProc, IntPtr lParam);
         
-        private static readonly IntPtr HWND_BOTTOM = new IntPtr(1);
-        private const uint SWP_NOACTIVATE = 0x0010;
-        private const uint SWP_NOSIZE = 0x0001;
-        private const uint SWP_NOMOVE = 0x0002;
+        delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+        
+        [DllImport("user32.dll")]
+        static extern IntPtr SendMessage(IntPtr hWnd, int Msg, IntPtr wParam, IntPtr lParam);
+        
+        private const int WM_CLOSE = 0x0010;
 
         private LibVLC _libVLC;
         private MediaPlayer _mediaPlayer;
-        private Panel _videoPanel;  // This will hold the video
+        private Panel _videoPanel;
         private string _logPath;
 
         public WallpaperWindow()
@@ -36,51 +41,67 @@ namespace NekoWallpaper
             _logPath = Path.Combine(Application.StartupPath, "debug.txt");
             Log("WallpaperWindow starting");
             
-            // Form setup
             this.FormBorderStyle = FormBorderStyle.None;
             this.Bounds = Screen.PrimaryScreen.Bounds;
             this.TopMost = false;
             this.ShowInTaskbar = false;
             this.BackColor = Color.Black;
             
-            // Create a panel for video
             _videoPanel = new Panel
             {
                 Dock = DockStyle.Fill,
-                BackColor = Color.Black,
-                Location = new Point(0, 0)
+                BackColor = Color.Black
             };
             this.Controls.Add(_videoPanel);
             
-            Log("Finding desktop window");
+            // Find the desktop icon layer (WorkerW with SHELLDLL_DefView)
+            IntPtr targetWindow = IntPtr.Zero;
             IntPtr progman = FindWindow("Progman", null);
-            SetParent(this.Handle, progman);
             
-            // Force window to bottom
-            SetWindowPos(this.Handle, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
+            // Trigger creation of WorkerW if needed
+            SendMessage(progman, 0x052C, IntPtr.Zero, IntPtr.Zero);
             
+            // Find WorkerW that contains SHELLDLL_DefView (icons)
+            IntPtr workerW = IntPtr.Zero;
+            while ((workerW = FindWindowEx(IntPtr.Zero, workerW, "WorkerW", null)) != IntPtr.Zero)
+            {
+                IntPtr shellView = FindWindowEx(workerW, IntPtr.Zero, "SHELLDLL_DefView", null);
+                if (shellView != IntPtr.Zero)
+                {
+                    targetWindow = workerW;
+                    break;
+                }
+            }
+            
+            if (targetWindow != IntPtr.Zero)
+            {
+                Log($"Found WorkerW with icons: {targetWindow}");
+                SetParent(this.Handle, targetWindow);
+            }
+            else
+            {
+                Log("Using Progman as fallback");
+                SetParent(this.Handle, progman);
+            }
+            
+            ShowWindow(this.Handle, 1);
             Log($"Form handle: {this.Handle}");
-            Log($"Panel handle: {_videoPanel.Handle}");
             
             try
             {
                 Log("Initializing VLC");
                 _libVLC = new LibVLC();
                 _mediaPlayer = new MediaPlayer(_libVLC);
-                
-                // IMPORTANT: Set video output to the panel's handle, not the form
                 _mediaPlayer.Hwnd = _videoPanel.Handle;
                 
                 _mediaPlayer.Playing += (s, e) => Log("Event: Playing");
                 _mediaPlayer.Stopped += (s, e) => Log("Event: Stopped");
-                _mediaPlayer.EncounteredError += (s, e) => Log("Event: EncounteredError");
                 
                 Log("VLC initialized");
             }
             catch (Exception ex)
             {
                 Log($"VLC init error: {ex}");
-                MessageBox.Show($"VLC init error: {ex.Message}");
             }
         }
 
@@ -93,12 +114,9 @@ namespace NekoWallpaper
                 if (!File.Exists(path))
                 {
                     Log($"File not found: {path}");
-                    MessageBox.Show("File not found");
                     return;
                 }
 
-                Log($"File exists: {path}, size: {new FileInfo(path).Length}");
-                
                 _mediaPlayer?.Stop();
                 
                 var media = new Media(_libVLC, path);
@@ -106,13 +124,11 @@ namespace NekoWallpaper
                 media.AddOption(":input-repeat=65535");
                 
                 _mediaPlayer.Play(media);
-                
                 Log($"MediaPlayer.State = {_mediaPlayer.State}");
             }
             catch (Exception ex)
             {
                 Log($"Play error: {ex}");
-                MessageBox.Show($"Play error: {ex.Message}");
             }
         }
 
