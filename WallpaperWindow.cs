@@ -21,79 +21,93 @@ namespace NekoWallpaper
         private LibVLC _libVLC;
         private MediaPlayer _mediaPlayer;
         private string _currentFile;
+        private string _logPath;
 
         public WallpaperWindow()
         {
+            _logPath = Path.Combine(Application.StartupPath, "debug.txt");
+            Log("WallpaperWindow starting");
+            
             this.FormBorderStyle = FormBorderStyle.None;
             this.Bounds = Screen.PrimaryScreen.Bounds;
             this.TopMost = false;
             this.ShowInTaskbar = false;
-            this.BackColor = Color.Black; // So we can see if window is there
+            this.BackColor = Color.Black;
             
+            Log("Setting parent to Progman");
             IntPtr progman = FindWindow("Progman", null);
             SetParent(this.Handle, progman);
-            
-            // Make window visible
             ShowWindow(this.Handle, 1);
             
             try
             {
+                Log("Initializing VLC");
                 Core.Initialize();
                 _libVLC = new LibVLC();
                 _mediaPlayer = new MediaPlayer(_libVLC);
                 _mediaPlayer.Hwnd = this.Handle;
-                
-                // Add some logging
-                _mediaPlayer.Playing += (s, e) => Console.WriteLine("Video is playing");
-                _mediaPlayer.Stopped += (s, e) => Console.WriteLine("Video stopped");
-                _mediaPlayer.EndReached += (s, e) => Console.WriteLine("Video ended");
+                Log("VLC initialized");
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"VLC init error: {ex.Message}");
+                Log($"VLC init error: {ex}");
             }
         }
 
         public void PlayVideo(string path)
         {
+            Log($"PlayVideo called with: {path}");
+            
             try
             {
                 if (!File.Exists(path))
                 {
-                    MessageBox.Show("File not found");
+                    Log($"File not found: {path}");
                     return;
                 }
 
+                Log($"File exists: {path}, size: {new FileInfo(path).Length}");
+                
                 _currentFile = path;
+                _mediaPlayer?.Stop();
                 
-                // Stop current playback
-                _mediaPlayer.Stop();
-                
-                // Create new media
+                Log("Creating media");
                 using (var media = new Media(_libVLC, path))
                 {
-                    // Configure media
-                    media.AddOption(":input-repeat=65535"); // Loop forever
+                    Log("Adding loop option");
+                    media.AddOption(":input-repeat=65535");
                     
-                    // Play it
+                    Log("Playing media");
                     _mediaPlayer.Play(media);
+                    
+                    Log($"MediaPlayer.IsPlaying = {_mediaPlayer.IsPlaying}");
                 }
-                
-                Console.WriteLine($"Attempting to play: {path}");
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Play error: {ex.Message}");
+                Log($"Play error: {ex}");
             }
         }
 
         public void Stop()
         {
+            Log("Stop called");
             _mediaPlayer?.Stop();
+        }
+
+        private void Log(string message)
+        {
+            try
+            {
+                string logLine = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - {message}{Environment.NewLine}";
+                File.AppendAllText(_logPath, logLine);
+            }
+            catch { }
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            Log("Form closing");
             _mediaPlayer?.Dispose();
             _libVLC?.Dispose();
             base.OnFormClosing(e);
