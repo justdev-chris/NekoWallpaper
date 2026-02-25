@@ -9,12 +9,14 @@ namespace NekoWallpaper
 {
     public class WallpaperWindow : Form
     {
-        // Windows API stuff to stick to desktop
         [DllImport("user32.dll")]
         static extern IntPtr SetParent(IntPtr hWndChild, IntPtr hWndNewParent);
         
         [DllImport("user32.dll")]
         static extern IntPtr FindWindow(string className, string windowName);
+        
+        [DllImport("user32.dll")]
+        static extern int ShowWindow(IntPtr hWnd, int nCmdShow);
 
         private LibVLC _libVLC;
         private MediaPlayer _mediaPlayer;
@@ -26,41 +28,68 @@ namespace NekoWallpaper
             this.Bounds = Screen.PrimaryScreen.Bounds;
             this.TopMost = false;
             this.ShowInTaskbar = false;
+            this.BackColor = Color.Black; // So we can see if window is there
             
-            // Stick to desktop
             IntPtr progman = FindWindow("Progman", null);
             SetParent(this.Handle, progman);
             
-            // Tell VLC where to find its native libraries
-            string baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
-            string libvlcPath = Path.Combine(baseDirectory, "libvlc", "win-x64");
+            // Make window visible
+            ShowWindow(this.Handle, 1);
             
-            // Initialize VLC with the correct path
-            Core.Initialize(libvlcPath);
-            
-            _libVLC = new LibVLC();
-            _mediaPlayer = new MediaPlayer(_libVLC);
-            _mediaPlayer.Hwnd = this.Handle;
+            try
+            {
+                Core.Initialize();
+                _libVLC = new LibVLC();
+                _mediaPlayer = new MediaPlayer(_libVLC);
+                _mediaPlayer.Hwnd = this.Handle;
+                
+                // Add some logging
+                _mediaPlayer.Playing += (s, e) => Console.WriteLine("Video is playing");
+                _mediaPlayer.Stopped += (s, e) => Console.WriteLine("Video stopped");
+                _mediaPlayer.EndReached += (s, e) => Console.WriteLine("Video ended");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"VLC init error: {ex.Message}");
+            }
         }
 
         public void PlayVideo(string path)
         {
-            _currentFile = path;
-            var media = new Media(_libVLC, path);
-            
-            // Loop when video ends
-            _mediaPlayer.EndReached += (s, e) => 
+            try
             {
+                if (!File.Exists(path))
+                {
+                    MessageBox.Show("File not found");
+                    return;
+                }
+
+                _currentFile = path;
+                
+                // Stop current playback
                 _mediaPlayer.Stop();
-                _mediaPlayer.Play(media);
-            };
-            
-            _mediaPlayer.Play(media);
+                
+                // Create new media
+                using (var media = new Media(_libVLC, path))
+                {
+                    // Configure media
+                    media.AddOption(":input-repeat=65535"); // Loop forever
+                    
+                    // Play it
+                    _mediaPlayer.Play(media);
+                }
+                
+                Console.WriteLine($"Attempting to play: {path}");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Play error: {ex.Message}");
+            }
         }
 
         public void Stop()
         {
-            _mediaPlayer.Stop();
+            _mediaPlayer?.Stop();
         }
 
         protected override void OnFormClosing(FormClosingEventArgs e)
