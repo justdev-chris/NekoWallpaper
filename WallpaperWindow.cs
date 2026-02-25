@@ -16,11 +16,19 @@ namespace NekoWallpaper
         static extern IntPtr FindWindow(string className, string windowName);
         
         [DllImport("user32.dll")]
-        static extern int ShowWindow(IntPtr hWnd, int nCmdShow);
+        static extern IntPtr GetDesktopWindow();
+        
+        [DllImport("user32.dll")]
+        static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+        
+        private static readonly IntPtr HWND_BOTTOM = new IntPtr(1);
+        private const uint SWP_NOACTIVATE = 0x0010;
+        private const uint SWP_NOSIZE = 0x0001;
+        private const uint SWP_NOMOVE = 0x0002;
 
         private LibVLC _libVLC;
         private MediaPlayer _mediaPlayer;
-        private string _currentFile;
+        private Panel _videoPanel;  // This will hold the video
         private string _logPath;
 
         public WallpaperWindow()
@@ -28,30 +36,43 @@ namespace NekoWallpaper
             _logPath = Path.Combine(Application.StartupPath, "debug.txt");
             Log("WallpaperWindow starting");
             
+            // Form setup
             this.FormBorderStyle = FormBorderStyle.None;
             this.Bounds = Screen.PrimaryScreen.Bounds;
             this.TopMost = false;
             this.ShowInTaskbar = false;
             this.BackColor = Color.Black;
             
-            Log("Setting parent to Progman");
+            // Create a panel for video
+            _videoPanel = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.Black,
+                Location = new Point(0, 0)
+            };
+            this.Controls.Add(_videoPanel);
+            
+            Log("Finding desktop window");
             IntPtr progman = FindWindow("Progman", null);
             SetParent(this.Handle, progman);
-            ShowWindow(this.Handle, 1);
+            
+            // Force window to bottom
+            SetWindowPos(this.Handle, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE);
+            
+            Log($"Form handle: {this.Handle}");
+            Log($"Panel handle: {_videoPanel.Handle}");
             
             try
             {
-                Log("Initializing VLC with verbose logging");
-                string[] vlcArgs = new[] { "--verbose=2", "--no-color", "--logfile=vlc-log.txt" };
-                _libVLC = new LibVLC(vlcArgs);
+                Log("Initializing VLC");
+                _libVLC = new LibVLC();
                 _mediaPlayer = new MediaPlayer(_libVLC);
-                _mediaPlayer.Hwnd = this.Handle;
                 
-                // Add event handlers (fixed CacheLevel property name)
+                // IMPORTANT: Set video output to the panel's handle, not the form
+                _mediaPlayer.Hwnd = _videoPanel.Handle;
+                
                 _mediaPlayer.Playing += (s, e) => Log("Event: Playing");
                 _mediaPlayer.Stopped += (s, e) => Log("Event: Stopped");
-                _mediaPlayer.EndReached += (s, e) => Log("Event: EndReached");
-                _mediaPlayer.Buffering += (s, e) => Log($"Event: Buffering"); // Removed CacheLevel
                 _mediaPlayer.EncounteredError += (s, e) => Log("Event: EncounteredError");
                 
                 Log("VLC initialized");
@@ -59,6 +80,7 @@ namespace NekoWallpaper
             catch (Exception ex)
             {
                 Log($"VLC init error: {ex}");
+                MessageBox.Show($"VLC init error: {ex.Message}");
             }
         }
 
@@ -71,41 +93,26 @@ namespace NekoWallpaper
                 if (!File.Exists(path))
                 {
                     Log($"File not found: {path}");
+                    MessageBox.Show("File not found");
                     return;
                 }
 
                 Log($"File exists: {path}, size: {new FileInfo(path).Length}");
                 
-                _currentFile = path;
                 _mediaPlayer?.Stop();
                 
-                Log("Creating media with GIF options");
-                
-                // Create media with options (fixed string[] to MediaConfiguration)
                 var media = new Media(_libVLC, path);
-                
-                // Add options one by one
                 media.AddOption(":no-audio");
                 media.AddOption(":input-repeat=65535");
                 
-                // Check if it's a GIF
-                string extension = Path.GetExtension(path).ToLower();
-                if (extension == ".gif")
-                {
-                    media.AddOption(":gif-fps=25");
-                    media.AddOption(":image-fps=25");
-                    media.AddOption(":no-overlay");
-                }
-                
-                Log("Playing media");
                 _mediaPlayer.Play(media);
                 
-                Log($"MediaPlayer.IsPlaying = {_mediaPlayer.IsPlaying}");
                 Log($"MediaPlayer.State = {_mediaPlayer.State}");
             }
             catch (Exception ex)
             {
                 Log($"Play error: {ex}");
+                MessageBox.Show($"Play error: {ex.Message}");
             }
         }
 
