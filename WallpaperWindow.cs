@@ -41,11 +41,19 @@ namespace NekoWallpaper
             
             try
             {
-                Log("Initializing VLC");
-                Core.Initialize();
-                _libVLC = new LibVLC();
+                Log("Initializing VLC with verbose logging");
+                string[] vlcArgs = new[] { "--verbose=2", "--no-color", "--logfile=vlc-log.txt" };
+                _libVLC = new LibVLC(vlcArgs);
                 _mediaPlayer = new MediaPlayer(_libVLC);
                 _mediaPlayer.Hwnd = this.Handle;
+                
+                // Add event handlers
+                _mediaPlayer.Playing += (s, e) => Log("Event: Playing");
+                _mediaPlayer.Stopped += (s, e) => Log("Event: Stopped");
+                _mediaPlayer.EndReached += (s, e) => Log("Event: EndReached");
+                _mediaPlayer.Buffering += (s, e) => Log($"Event: Buffering {e.CacheLevel}%");
+                _mediaPlayer.EncounteredError += (s, e) => Log("Event: EncounteredError");
+                
                 Log("VLC initialized");
             }
             catch (Exception ex)
@@ -71,17 +79,38 @@ namespace NekoWallpaper
                 _currentFile = path;
                 _mediaPlayer?.Stop();
                 
-                Log("Creating media");
-                using (var media = new Media(_libVLC, path))
+                Log("Creating media with GIF options");
+                
+                // Check if it's a GIF
+                string extension = Path.GetExtension(path).ToLower();
+                string[] mediaOptions;
+                
+                if (extension == ".gif")
                 {
-                    Log("Adding loop option");
-                    media.AddOption(":input-repeat=65535");
-                    
-                    Log("Playing media");
-                    _mediaPlayer.Play(media);
-                    
-                    Log($"MediaPlayer.IsPlaying = {_mediaPlayer.IsPlaying}");
+                    mediaOptions = new[] { 
+                        ":no-audio", 
+                        ":input-repeat=65535",
+                        ":gif-fps=25",
+                        ":image-fps=25",
+                        ":no-overlay"
+                    };
                 }
+                else
+                {
+                    mediaOptions = new[] { 
+                        ":no-audio", 
+                        ":input-repeat=65535" 
+                    };
+                }
+                
+                var media = new Media(_libVLC, path, mediaOptions);
+                
+                Log("Playing media");
+                _mediaPlayer.Play(media);
+                
+                // Don't dispose media yet
+                Log($"MediaPlayer.IsPlaying = {_mediaPlayer.IsPlaying}");
+                Log($"MediaPlayer.State = {_mediaPlayer.State}");
             }
             catch (Exception ex)
             {
