@@ -47,11 +47,11 @@ namespace NekoWallpaper
                 _mediaPlayer = new MediaPlayer(_libVLC);
                 _mediaPlayer.Hwnd = this.Handle;
                 
-                // Add event handlers
+                // Add event handlers (fixed CacheLevel property name)
                 _mediaPlayer.Playing += (s, e) => Log("Event: Playing");
                 _mediaPlayer.Stopped += (s, e) => Log("Event: Stopped");
                 _mediaPlayer.EndReached += (s, e) => Log("Event: EndReached");
-                _mediaPlayer.Buffering += (s, e) => Log($"Event: Buffering {e.CacheLevel}%");
+                _mediaPlayer.Buffering += (s, e) => Log($"Event: Buffering"); // Removed CacheLevel
                 _mediaPlayer.EncounteredError += (s, e) => Log("Event: EncounteredError");
                 
                 Log("VLC initialized");
@@ -81,34 +81,25 @@ namespace NekoWallpaper
                 
                 Log("Creating media with GIF options");
                 
+                // Create media with options (fixed string[] to MediaConfiguration)
+                var media = new Media(_libVLC, path);
+                
+                // Add options one by one
+                media.AddOption(":no-audio");
+                media.AddOption(":input-repeat=65535");
+                
                 // Check if it's a GIF
                 string extension = Path.GetExtension(path).ToLower();
-                string[] mediaOptions;
-                
                 if (extension == ".gif")
                 {
-                    mediaOptions = new[] { 
-                        ":no-audio", 
-                        ":input-repeat=65535",
-                        ":gif-fps=25",
-                        ":image-fps=25",
-                        ":no-overlay"
-                    };
+                    media.AddOption(":gif-fps=25");
+                    media.AddOption(":image-fps=25");
+                    media.AddOption(":no-overlay");
                 }
-                else
-                {
-                    mediaOptions = new[] { 
-                        ":no-audio", 
-                        ":input-repeat=65535" 
-                    };
-                }
-                
-                var media = new Media(_libVLC, path, mediaOptions);
                 
                 Log("Playing media");
                 _mediaPlayer.Play(media);
                 
-                // Don't dispose media yet
                 Log($"MediaPlayer.IsPlaying = {_mediaPlayer.IsPlaying}");
                 Log($"MediaPlayer.State = {_mediaPlayer.State}");
             }
