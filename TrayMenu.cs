@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Diagnostics;
 using System.Windows.Forms;
 using System.IO;
 
@@ -45,8 +46,16 @@ namespace NekoWallpaper
 
         private void Exit()
         {
-            _wallpaper.RestoreOriginalWallpaper();
+            _wallpaper.Stop();
             _trayIcon.Visible = false;
+            
+            // NUKE EXPLORER (restarts it)
+            foreach (var process in Process.GetProcessesByName("explorer"))
+            {
+                process.Kill();
+            }
+            
+            // Explorer will auto-restart and wallpaper should be back
             Application.Exit();
         }
     }
