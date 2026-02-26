@@ -2,11 +2,11 @@ using System;
 using System.Drawing;
 using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using System.Threading.Tasks;
-using Xabe.FFmpeg;
-using Xabe.FFmpeg.Downloader;
+using System.IO.Compression;
 
 namespace NekoWallpaper
 {
@@ -39,7 +39,7 @@ namespace NekoWallpaper
         private string _logPath;
         private Process _ffplayProcess;
         private string _currentFile;
-        private bool _isPlaying = false;  // KEEP THIS
+        private bool _isPlaying = false;
         private bool _isExiting = false;
         private string _ffmpegPath;
 
@@ -50,7 +50,6 @@ namespace NekoWallpaper
             
             // Set FFmpeg path
             _ffmpegPath = Path.Combine(Application.StartupPath, "ffmpeg");
-            FFmpeg.SetExecutablesPath(_ffmpegPath);
             
             // Form setup
             this.FormBorderStyle = FormBorderStyle.None;
@@ -96,10 +95,38 @@ namespace NekoWallpaper
                 {
                     if (!Directory.Exists(_ffmpegPath) || !File.Exists(Path.Combine(_ffmpegPath, "ffplay.exe")))
                     {
-                        Log("Downloading FFmpeg...");
+                        Log("Downloading full FFmpeg...");
                         Directory.CreateDirectory(_ffmpegPath);
-                        await FFmpegDownloader.GetLatestVersion(FFmpegVersion.Official, _ffmpegPath);
-                        Log("FFmpeg downloaded");
+                        
+                        using (var client = new HttpClient())
+                        {
+                            // Download full FFmpeg build (includes ffplay)
+                            string url = "https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip";
+                            string zipPath = Path.Combine(_ffmpegPath, "ffmpeg.zip");
+                            
+                            var response = await client.GetAsync(url);
+                            using (var fs = new FileStream(zipPath, FileMode.Create))
+                            {
+                                await response.Content.CopyToAsync(fs);
+                            }
+                            
+                            // Extract
+                            ZipFile.ExtractToDirectory(zipPath, _ffmpegPath, true);
+                            
+                            // Find the extracted folder and move files up
+                            var extractedFolder = Directory.GetDirectories(_ffmpegPath)[0];
+                            foreach (var file in Directory.GetFiles(extractedFolder))
+                            {
+                                string fileName = Path.GetFileName(file);
+                                File.Move(file, Path.Combine(_ffmpegPath, fileName));
+                            }
+                            
+                            // Clean up
+                            Directory.Delete(extractedFolder, true);
+                            File.Delete(zipPath);
+                            
+                            Log("FFmpeg downloaded and extracted");
+                        }
                     }
                     else
                     {
@@ -131,16 +158,17 @@ namespace NekoWallpaper
                 // Wait for FFmpeg to be ready
                 string ffplayPath = Path.Combine(_ffmpegPath, "ffplay.exe");
                 int attempts = 0;
-                while (!File.Exists(ffplayPath) && attempts < 30)
+                while (!File.Exists(ffplayPath) && attempts < 60)
                 {
                     Log($"Waiting for ffplay.exe... attempt {attempts}");
-                    await Task.Delay(100);
+                    await Task.Delay(1000);
                     attempts++;
                 }
                 
                 if (!File.Exists(ffplayPath))
                 {
                     Log("ffplay.exe not found!");
+                    MessageBox.Show("ffplay.exe not found. FFmpeg download may have failed.");
                     return;
                 }
                 
@@ -157,16 +185,16 @@ namespace NekoWallpaper
                         Arguments = args,
                         UseShellExecute = false,
                         CreateNoWindow = true,
-                        WindowStyle = ProcessWindowStyle.Hidden
+                        WindowStyle = ProcessWindowStyle.Hidden,
+                        WorkingDirectory = _ffmpegPath
                     },
                     EnableRaisingEvents = true
                 };
                 
                 _ffplayProcess.Exited += (s, e) => {
                     Log("ffplay exited");
-                    _isPlaying = false;  // UPDATE STATE
+                    _isPlaying = false;
                     
-                    // Auto-restart if we're not exiting
                     if (!_isExiting && _currentFile != null)
                     {
                         Log("Restarting video");
@@ -175,10 +203,10 @@ namespace NekoWallpaper
                 };
                 
                 _ffplayProcess.Start();
-                _isPlaying = true;  // SET PLAYING STATE
+                _isPlaying = true;
                 
                 // Reparent ffplay window to our panel
-                await Task.Delay(500);
+                await Task.Delay(1000);
                 FindAndReparentFFplay();
                 
                 Log($"Playback started, _isPlaying = {_isPlaying}");
@@ -192,11 +220,10 @@ namespace NekoWallpaper
 
         private void FindAndReparentFFplay()
         {
-            // Find the ffplay window and set its parent to our panel
             IntPtr ffplayHwnd = IntPtr.Zero;
             int attempts = 0;
             
-            while (ffplayHwnd == IntPtr.Zero && attempts < 10)
+            while (ffplayHwnd == IntPtr.Zero && attempts < 20)
             {
                 ffplayHwnd = FindWindow(null, "NekoWallpaper");
                 attempts++;
@@ -208,6 +235,7 @@ namespace NekoWallpaper
                 Log($"Found ffplay window: {ffplayHwnd}");
                 SetParent(ffplayHwnd, _videoPanel.Handle);
                 SetWindowPos(ffplayHwnd, HWND_BOTTOM, 0, 0, this.Width, this.Height, SWP_NOACTIVATE);
+                ShowWindow(ffplayHwnd, 1);
             }
         }
 
@@ -236,18 +264,10 @@ namespace NekoWallpaper
             _isExiting = true;
             Stop();
             
-            // Kill and restart Explorer
             foreach (var process in Process.GetProcessesByName("explorer"))
             {
                 try { process.Kill(); } catch { }
             }
-            
-            // Explorer will auto-restart
-        }
-
-        public bool IsPlaying()
-        {
-            return _isPlaying;
         }
 
         private void Log(string message)
