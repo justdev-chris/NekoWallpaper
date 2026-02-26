@@ -1,6 +1,5 @@
 using System;
 using System.Drawing;
-using System.Diagnostics;
 using System.Windows.Forms;
 using System.IO;
 
@@ -35,7 +34,7 @@ namespace NekoWallpaper
         {
             using (var dialog = new OpenFileDialog())
             {
-                dialog.Filter = "Media Files|*.mp4;*.gif|MP4|*.mp4|GIF|*.gif";
+                dialog.Filter = "Media Files|*.mp4;*.gif;*.webm;*.avi|MP4|*.mp4|GIF|*.gif";
                 
                 if (dialog.ShowDialog() == DialogResult.OK)
                 {
@@ -46,16 +45,8 @@ namespace NekoWallpaper
 
         private void Exit()
         {
-            _wallpaper.Stop();
+            _wallpaper.RestoreOriginalWallpaper();
             _trayIcon.Visible = false;
-            
-            // NUKE EXPLORER (restarts it)
-            foreach (var process in Process.GetProcessesByName("explorer"))
-            {
-                process.Kill();
-            }
-            
-            // Explorer will auto-restart and wallpaper should be back
             Application.Exit();
         }
     }
