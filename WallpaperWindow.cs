@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using System.Threading.Tasks;
 using Xabe.FFmpeg;
+using Xabe.FFmpeg.Downloader;
 
 namespace NekoWallpaper
 {
@@ -39,11 +40,17 @@ namespace NekoWallpaper
         private Process _ffplayProcess;
         private bool _isPlaying = false;
         private string _currentFile;
+        private bool _isExiting = false;
+        private string _ffmpegPath;
 
         public WallpaperWindow()
         {
             _logPath = Path.Combine(Application.StartupPath, "debug.txt");
             Log("WallpaperWindow starting");
+            
+            // Set FFmpeg path
+            _ffmpegPath = Path.Combine(Application.StartupPath, "ffmpeg");
+            FFmpeg.SetExecutablesPath(_ffmpegPath);
             
             // Form setup
             this.FormBorderStyle = FormBorderStyle.None;
@@ -85,11 +92,23 @@ namespace NekoWallpaper
             
             // Download FFmpeg if needed
             Task.Run(async () => {
-                if (!File.Exists(FFmpeg.ExecutablesPath))
+                try
                 {
-                    Log("Downloading FFmpeg...");
-                    await Xabe.FFmpeg.Downloader.FFmpegDownloader.GetLatestVersion(Xabe.FFmpeg.Downloader.FFmpegVersion.Official);
-                    Log("FFmpeg downloaded");
+                    if (!Directory.Exists(_ffmpegPath) || !File.Exists(Path.Combine(_ffmpegPath, "ffplay.exe")))
+                    {
+                        Log("Downloading FFmpeg...");
+                        Directory.CreateDirectory(_ffmpegPath);
+                        await FFmpegDownloader.GetLatestVersion(FFmpegVersion.Official, _ffmpegPath);
+                        Log("FFmpeg downloaded");
+                    }
+                    else
+                    {
+                        Log("FFmpeg already exists");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log($"FFmpeg download error: {ex}");
                 }
             });
         }
@@ -109,11 +128,23 @@ namespace NekoWallpaper
                 Stop();
                 _currentFile = path;
                 
-                // Get panel handle for ffplay to render into
-                string handle = _videoPanel.Handle.ToString();
+                // Wait for FFmpeg to be ready
+                string ffplayPath = Path.Combine(_ffmpegPath, "ffplay.exe");
+                int attempts = 0;
+                while (!File.Exists(ffplayPath) && attempts < 30)
+                {
+                    Log($"Waiting for ffplay.exe... attempt {attempts}");
+                    await Task.Delay(100);
+                    attempts++;
+                }
+                
+                if (!File.Exists(ffplayPath))
+                {
+                    Log("ffplay.exe not found!");
+                    return;
+                }
                 
                 // Build ffplay command
-                string ffplayPath = Path.Combine(FFmpeg.ExecutablesPath, "ffplay.exe");
                 string args = $"-window_title \"NekoWallpaper\" -left 0 -top 0 -x {this.Width} -y {this.Height} -loop 0 -noborder -alwaysontop false \"{path}\"";
                 
                 Log($"Starting ffplay: {ffplayPath} {args}");
@@ -147,7 +178,7 @@ namespace NekoWallpaper
                 _isPlaying = true;
                 
                 // Reparent ffplay window to our panel
-                await Task.Delay(500); // Wait for window to create
+                await Task.Delay(500);
                 FindAndReparentFFplay();
                 
                 Log("Playback started");
@@ -179,8 +210,6 @@ namespace NekoWallpaper
             }
         }
 
-        private bool _isExiting = false;
-
         public void Stop()
         {
             Log("Stop called");
@@ -201,8 +230,13 @@ namespace NekoWallpaper
             _isExiting = true;
             Stop();
             
-            IntPtr progman = FindWindow("Progman", null);
-            SendMessage(progman, 0x052C, 0, 0);
+            // Kill and restart Explorer
+            foreach (var process in Process.GetProcessesByName("explorer"))
+            {
+                try { process.Kill(); } catch { }
+            }
+            
+            // Explorer will auto-restart
         }
 
         private void Log(string message)
