@@ -95,8 +95,19 @@ namespace NekoWallpaper
             
             try
             {
-                Log("Initializing VLC");
-                _libVLC = new LibVLC();
+                Log("Initializing VLC with verbose logging");
+                
+                // Enable VLC logging
+                string vlcLogPath = Path.Combine(Application.StartupPath, "vlc-log.txt");
+                string[] vlcArgs = new[] { 
+                    "--verbose=2", 
+                    $"--logfile={vlcLogPath}",
+                    "--no-color",
+                    "--image-decoder=ffmpeg",
+                    "--codec=ffmpeg"
+                };
+                
+                _libVLC = new LibVLC(vlcArgs);
                 _mediaPlayer = new MediaPlayer(_libVLC);
                 _mediaPlayer.Hwnd = _videoPanel.Handle;
                 
@@ -138,29 +149,45 @@ namespace NekoWallpaper
                 _mediaPlayer?.Stop();
                 _currentMedia?.Dispose();
                 
-                // Create new media with proper options for both GIF and MP4
+                // Create new media
                 _currentMedia = new Media(_libVLC, path);
+                
+                // Add options based on file type
+                string extension = Path.GetExtension(path).ToLower();
+                
+                // Common options
                 _currentMedia.AddOption(":no-audio");
                 _currentMedia.AddOption(":input-repeat=65535");
-                
-                // Force aspect ratio to fill screen
                 _currentMedia.AddOption(":aspect-ratio=fill");
                 
-                // Additional options for GIFs
-                string extension = Path.GetExtension(path).ToLower();
                 if (extension == ".gif")
                 {
+                    Log("Applying GIF-specific options");
+                    // Force image decoder and framerate
+                    _currentMedia.AddOption(":image-decoder=ffmpeg");
+                    _currentMedia.AddOption(":codec=ffmpeg");
                     _currentMedia.AddOption(":image-fps=30");
                     _currentMedia.AddOption(":gif-fps=30");
                     _currentMedia.AddOption(":no-overlay");
+                    _currentMedia.AddOption(":scale=Auto");
                 }
-                
-                // Set video output to fill
-                _currentMedia.AddOption(":video-filter=scale");
-                _currentMedia.AddOption(":scale=1.0");
+                else if (extension == ".mp4")
+                {
+                    Log("Applying MP4-specific options");
+                    _currentMedia.AddOption(":video-filter=scale");
+                    _currentMedia.AddOption(":scale=1.0");
+                }
                 
                 _mediaPlayer.Play(_currentMedia);
                 Log($"MediaPlayer.State = {_mediaPlayer.State}");
+                
+                // Check if playing after a moment
+                System.Threading.Timer timer = null;
+                timer = new System.Threading.Timer((_) =>
+                {
+                    Log($"Delayed check - IsPlaying: {_mediaPlayer.IsPlaying}, State: {_mediaPlayer.State}");
+                    timer?.Dispose();
+                }, null, 1000, System.Threading.Timeout.Infinite);
             }
             catch (Exception ex)
             {
