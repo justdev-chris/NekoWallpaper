@@ -38,8 +38,8 @@ namespace NekoWallpaper
         private Panel _videoPanel;
         private string _logPath;
         private Process _ffplayProcess;
-        private bool _isPlaying = false;
         private string _currentFile;
+        private bool _isPlaying = false;  // KEEP THIS
         private bool _isExiting = false;
         private string _ffmpegPath;
 
@@ -164,7 +164,7 @@ namespace NekoWallpaper
                 
                 _ffplayProcess.Exited += (s, e) => {
                     Log("ffplay exited");
-                    _isPlaying = false;
+                    _isPlaying = false;  // UPDATE STATE
                     
                     // Auto-restart if we're not exiting
                     if (!_isExiting && _currentFile != null)
@@ -175,17 +175,18 @@ namespace NekoWallpaper
                 };
                 
                 _ffplayProcess.Start();
-                _isPlaying = true;
+                _isPlaying = true;  // SET PLAYING STATE
                 
                 // Reparent ffplay window to our panel
                 await Task.Delay(500);
                 FindAndReparentFFplay();
                 
-                Log("Playback started");
+                Log($"Playback started, _isPlaying = {_isPlaying}");
             }
             catch (Exception ex)
             {
                 Log($"Play error: {ex}");
+                _isPlaying = false;
             }
         }
 
@@ -212,15 +213,20 @@ namespace NekoWallpaper
 
         public void Stop()
         {
-            Log("Stop called");
-            _isPlaying = false;
+            Log($"Stop called, current state - _isPlaying: {_isPlaying}");
             _currentFile = null;
             
-            if (_ffplayProcess != null && !_ffplayProcess.HasExited)
+            if (_isPlaying && _ffplayProcess != null && !_ffplayProcess.HasExited)
             {
                 _ffplayProcess.Kill();
                 _ffplayProcess.Dispose();
                 _ffplayProcess = null;
+                _isPlaying = false;
+                Log("Stopped playback");
+            }
+            else
+            {
+                Log("Nothing to stop");
             }
         }
 
@@ -237,6 +243,11 @@ namespace NekoWallpaper
             }
             
             // Explorer will auto-restart
+        }
+
+        public bool IsPlaying()
+        {
+            return _isPlaying;
         }
 
         private void Log(string message)
