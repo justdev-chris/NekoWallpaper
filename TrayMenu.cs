@@ -25,7 +25,7 @@ namespace NekoWallpaper
             menu.Items.Add("Choose Wallpaper", null, (s, e) => ChooseWallpaper());
             menu.Items.Add("Stop", null, (s, e) => _wallpaper.Stop());
             menu.Items.Add("-");
-            menu.Items.Add("Exit", null, (s, e) => Application.Exit());
+            menu.Items.Add("Exit", null, (s, e) => Exit());
 
             _trayIcon.ContextMenuStrip = menu;
         }
@@ -41,6 +41,13 @@ namespace NekoWallpaper
                     _wallpaper.PlayVideo(dialog.FileName);
                 }
             }
+        }
+
+        private void Exit()
+        {
+            _wallpaper.RestoreOriginalWallpaper();
+            _trayIcon.Visible = false;
+            Application.Exit();
         }
     }
 }
