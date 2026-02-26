@@ -24,16 +24,21 @@ namespace NekoWallpaper
         [DllImport("user32.dll")]
         static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
         
+        [DllImport("user32.dll")]
+        static extern int SendMessage(IntPtr hWnd, int Msg, int wParam, int lParam);
+        
         private static readonly IntPtr HWND_BOTTOM = new IntPtr(1);
         private const uint SWP_NOACTIVATE = 0x0010;
         private const uint SWP_NOMOVE = 0x0002;
         private const uint SWP_NOSIZE = 0x0001;
+        private const int WM_CLOSE = 0x0010;
 
         private LibVLC _libVLC;
         private MediaPlayer _mediaPlayer;
         private Panel _videoPanel;
         private string _logPath;
         private Media _currentMedia;
+        private bool _isExiting = false;
 
         public WallpaperWindow()
         {
@@ -62,13 +67,16 @@ namespace NekoWallpaper
             IntPtr progman = FindWindow("Progman", null);
             IntPtr workerw = IntPtr.Zero;
             
-            // Find WorkerW that contains SHELLDLL_DefView
+            // Trigger WorkerW creation
+            SendMessage(progman, 0x052C, 0, 0);
+            
+            // Find WorkerW that contains SHELLDLL_DefView (icons)
             while ((workerw = FindWindowEx(IntPtr.Zero, workerw, "WorkerW", null)) != IntPtr.Zero)
             {
                 IntPtr shellView = FindWindowEx(workerw, IntPtr.Zero, "SHELLDLL_DefView", null);
                 if (shellView != IntPtr.Zero)
                 {
-                    // Found the layer with icons, now get next WorkerW (wallpaper layer)
+                    // Found the layer with icons, now get the next WorkerW (wallpaper layer)
                     workerw = FindWindowEx(IntPtr.Zero, workerw, "WorkerW", null);
                     break;
                 }
@@ -98,9 +106,9 @@ namespace NekoWallpaper
                 _mediaPlayer.EndReached += (s, e) => 
                 {
                     Log("Event: EndReached - restarting");
-                    _mediaPlayer.Stop();
-                    if (_currentMedia != null)
+                    if (!_isExiting && _currentMedia != null)
                     {
+                        _mediaPlayer.Stop();
                         _mediaPlayer.Play(_currentMedia);
                     }
                 };
@@ -127,15 +135,27 @@ namespace NekoWallpaper
                 }
 
                 // Clean up old media
-                _currentMedia?.Dispose();
                 _mediaPlayer?.Stop();
+                _currentMedia?.Dispose();
                 
-                // Create new media with proper options
+                // Create new media with proper options for both GIF and MP4
                 _currentMedia = new Media(_libVLC, path);
                 _currentMedia.AddOption(":no-audio");
                 _currentMedia.AddOption(":input-repeat=65535");
                 
-                // Scale to fit screen
+                // Force aspect ratio to fill screen
+                _currentMedia.AddOption(":aspect-ratio=fill");
+                
+                // Additional options for GIFs
+                string extension = Path.GetExtension(path).ToLower();
+                if (extension == ".gif")
+                {
+                    _currentMedia.AddOption(":image-fps=30");
+                    _currentMedia.AddOption(":gif-fps=30");
+                    _currentMedia.AddOption(":no-overlay");
+                }
+                
+                // Set video output to fill
                 _currentMedia.AddOption(":video-filter=scale");
                 _currentMedia.AddOption(":scale=1.0");
                 
@@ -156,6 +176,17 @@ namespace NekoWallpaper
             _currentMedia = null;
         }
 
+        public void RestoreOriginalWallpaper()
+        {
+            Log("Restoring original wallpaper");
+            _isExiting = true;
+            Stop();
+            
+            // Force desktop to refresh
+            IntPtr progman = FindWindow("Progman", null);
+            SendMessage(progman, 0x052C, 0, 0);
+        }
+
         private void Log(string message)
         {
             try
@@ -169,7 +200,7 @@ namespace NekoWallpaper
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             Log("Form closing");
-            Stop();
+            RestoreOriginalWallpaper();
             _mediaPlayer?.Dispose();
             _libVLC?.Dispose();
             base.OnFormClosing(e);
